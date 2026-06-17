@@ -25,19 +25,19 @@ class DatabaseConfig:
         self.environment = environment
 
         if environment == "development":
-            self.db_url = "postgresql://localhost:5432/knowledge_vault_dev"
+            self.db_url = "sqlite:///./app.db"
             self.pool_size = 5
             self.max_overflow = 10
             self.pool_pre_ping = True
             self.echo = True
         elif environment == "staging":
-            self.db_url = "postgresql://vault_user:secure_password@db.staging.internal:5432/knowledge_vault"
+            self.db_url = "sqlite:///./app.db"
             self.pool_size = 20
             self.max_overflow = 15
             self.pool_pre_ping = True
             self.echo = False
         else:  # production
-            self.db_url = "postgresql://vault_user:secure_password@db.production.internal:5432/knowledge_vault"
+            self.db_url = "sqlite:///./app.db"
             self.pool_size = 30
             self.max_overflow = 20
             self.pool_pre_ping = True
@@ -70,25 +70,11 @@ class DatabaseEngine:
         cls._config = DatabaseConfig(environment)
         logger.info(f"Initializing database engine for {environment} environment")
 
-        # Use QueuePool for production (thread-safe, connection queuing)
+        # SQLite engine configuration
         cls._engine = create_engine(
             cls._config.db_url,
-            poolclass=QueuePool,
-            pool_size=cls._config.pool_size,
-            max_overflow=cls._config.max_overflow,
-            pool_timeout=cls._config.pool_timeout,
-            pool_pre_ping=cls._config.pool_pre_ping,  # Test connections before use
-            pool_recycle=cls._config.pool_recycle,  # Recycle old connections
-            connect_args={
-                "connect_timeout": cls._config.connect_timeout,
-                "options": f"-c statement_timeout={cls._config.statement_timeout}",
-                "application_name": f"knowledge_vault_{environment}",
-                "tcp_keepalives_idle": 600,
-                "tcp_keepalives_interval": 60,
-                "tcp_keepalives_count": 5,
-            },
+            connect_args={"check_same_thread": False},
             echo=cls._config.echo,
-            echo_pool=False,  # Don't echo pool events (verbose)
         )
 
         # Register engine event listeners
@@ -102,12 +88,9 @@ class DatabaseEngine:
         def receive_connect(dbapi_conn, connection_record):
             """Initialize connection settings on new connections"""
             cursor = dbapi_conn.cursor()
-            # Set timezone to UTC
-            cursor.execute("SET timezone = 'UTC'")
-            # Set JSON serialization to compact
-            cursor.execute("SET json.pretty = off")
+            cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
-            logger.debug("New database connection established")
+            logger.debug("New SQLite database connection established")
 
         @event.listens_for(cls._engine, "checkin")
         def receive_checkin(dbapi_conn, connection_record):
@@ -242,12 +225,18 @@ def transaction_scope():
 
 def init_db(environment: str = "production"):
     """Initialize all database components
-
+    
     Call this once at application startup:
         init_db(environment="production")
     """
     DatabaseEngine.init(environment)
     SessionFactory.init()
+    
+    # Auto-create tables for local development
+    import models
+    engine = DatabaseEngine.get_engine()
+    Base.metadata.create_all(bind=engine)
+    
     logger.info(f"Database initialized for {environment} environment")
 
 
@@ -262,15 +251,12 @@ def shutdown_db():
 
 
 def get_db_stats():
-    """Get connection pool statistics"""
-    engine = DatabaseEngine.get_engine()
-    pool = engine.pool
-
+    """Get connection pool statistics (dummy for SQLite)"""
     return {
-        "pool_size": pool.size(),
-        "checked_out": pool.checkedout(),
-        "overflow": pool.overflow(),
-        "total_connections": pool.size() + pool.overflow(),
+        "pool_size": 0,
+        "checked_out": 0,
+        "overflow": 0,
+        "total_connections": 0,
     }
 
 

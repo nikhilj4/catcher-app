@@ -190,7 +190,7 @@ export default function LoomNotes() {
         textarea,input{font-family:inherit}
         *{box-sizing:border-box}`}</style>
 
-      <div style={{ maxWidth: 680, margin: "0 auto", minHeight: "100vh", background: t.paper, position: "relative", display: "flex", flexDirection: "column", transition: "background .3s,color .3s", boxShadow: "0 0 60px rgba(0,0,0,.07)" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto", height: "100vh", overflow: "hidden", background: t.paper, position: "relative", display: "flex", flexDirection: "column", transition: "background .3s,color .3s", boxShadow: "0 0 60px rgba(0,0,0,.07)" }}>
 
         {/* Backend status pill — fixed top-right within layout */}
         <div style={{ position: "absolute", top: 30, right: 28, zIndex: 45, display: "flex", alignItems: "center", gap: 4, background: backendOnline ? "#16A37B22" : "#F2664E22", borderRadius: 99, padding: "4px 10px" }}>

@@ -29,6 +29,10 @@ from vector_db import VectorDBClient
 from background_tasks import background_enrichment_queue
 from middleware import AuthMiddleware, RateLimitMiddleware
 
+import asyncio
+from dotenv import load_dotenv
+load_dotenv()
+
 # ============================================================================
 # LOGGING CONFIGURATION
 # ============================================================================
@@ -47,7 +51,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Knowledge Vault API starting...")
-    init_db(environment=os.getenv("ENVIRONMENT", "production"))
+    init_db(environment=os.getenv("ENVIRONMENT", "development"))
 
     # Health check
     if not DatabaseEngine.health_check():
@@ -56,10 +60,23 @@ async def lifespan(app: FastAPI):
 
     # Initialize vector DB client
     VectorDBClient.init(
-        provider=os.getenv("VECTOR_DB_PROVIDER", "pinecone"),
-        api_key=os.getenv("PINECONE_API_KEY")
+        provider="chroma",
+        api_key=os.getenv("PINECONE_API_KEY") # ignored by chroma
     )
     logger.info("✓ Vector DB client initialized")
+
+    from llm_integration import init_openai
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if api_key:
+        init_openai(api_key)
+        logger.info("✓ OpenAI/OpenRouter client initialized")
+    else:
+        logger.warning("⚠️ No OPENROUTER_API_KEY found, LLM features will use fallback")
+
+    # Start background task consumer if using InMemoryQueue
+    from background_tasks import run_background_queue
+    asyncio.create_task(run_background_queue())
+    logger.info("✓ Background task consumer started")
 
     logger.info("✓ Knowledge Vault API ready")
 
@@ -390,6 +407,56 @@ async def save_link(
         logger.error(f"Save link error: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class LinkListResponse(BaseModel):
+    id: str
+    url: str
+    platform: Optional[str]
+    title: Optional[str]
+    description: Optional[str]
+    ai_summary: Optional[str]
+    ai_tags: list[str]
+    category_hierarchy: Optional[str]
+    thumbnail_url: Optional[str]
+    ai_processed: bool
+    created_at: str
+
+@app.get("/api/links", response_model=list[LinkListResponse])
+async def get_links(
+    cat: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Get all links for current user, optionally filtered by category"""
+    try:
+        query = db.query(Link).filter(
+            Link.user_id == user_id,
+            Link.deleted_at == None
+        )
+        
+        if cat and cat != "All":
+            query = query.filter(Link.category_hierarchy == cat)
+            
+        links = query.order_by(Link.created_at.desc()).all()
+
+        return [
+            LinkListResponse(
+                id=str(link.id),
+                url=link.original_url,
+                platform=link.platform,
+                title=link.title,
+                description=link.description,
+                ai_summary=link.ai_summary,
+                ai_tags=link.ai_tags or [],
+                category_hierarchy=link.category_hierarchy,
+                thumbnail_url=link.thumbnail_url,
+                ai_processed=link.ai_processed,
+                created_at=link.created_at.isoformat()
+            ) for link in links
+        ]
+    except Exception as e:
+        logger.error(f"Get links error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/links/{link_id}", response_model=LinkDetailResponse)
 async def get_link_detail(

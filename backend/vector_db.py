@@ -1,116 +1,49 @@
 """
 Vector Database Client
-Abstraction layer for Pinecone and Qdrant vector databases
+Abstraction layer for ChromaDB
 """
 
 import logging
 from typing import List, Dict, Optional, Any
 import uuid
+import os
 
 logger = logging.getLogger(__name__)
 
-
 class VectorDBClient:
-    """Unified vector database client supporting Pinecone and Qdrant"""
+    """Unified vector database client supporting Chroma"""
 
-    _instance = None
-    _provider = None
+    _provider = "chroma"
     _client = None
+    _collection = None
 
     @classmethod
-    def init(cls, provider: str = "pinecone", api_key: str = None):
-        """
-        Initialize vector database client.
-
-        Args:
-            provider: "pinecone" or "qdrant"
-            api_key: API key for the provider
-        """
-        cls._provider = provider.lower()
-
-        if cls._provider == "pinecone":
-            cls._init_pinecone(api_key)
-        elif cls._provider == "qdrant":
-            cls._init_qdrant(api_key)
-        else:
-            raise ValueError(f"Unsupported vector DB provider: {provider}")
-
-        logger.info(f"Vector DB client initialized ({cls._provider})")
-
-    @classmethod
-    def _init_pinecone(cls, api_key: str):
-        """Initialize Pinecone client"""
+    def init(cls, provider: str = "chroma", api_key: str = None):
+        cls._provider = "chroma"
+        
         try:
-            import pinecone
-
-            pinecone.init(
-                api_key=api_key,
-                environment="prod-......"  # Update with your environment
+            import chromadb
+            # Use persistent client in the current directory
+            db_path = os.path.join(os.path.dirname(__file__), "chroma_db")
+            cls._client = chromadb.PersistentClient(path=db_path)
+            
+            # Get or create collection
+            cls._collection = cls._client.get_or_create_collection(
+                name="knowledge_vault",
+                metadata={"hnsw:space": "cosine"}
             )
-
-            # Get or create index
-            index_name = "knowledge-vault"
-            pinecone.create_index(
-                name=index_name,
-                dimension=1536,  # text-embedding-3-small
-                metric="cosine",
-                metadata_config={
-                    "indexed": ["user_id", "platform", "category"]
-                }
-            )
-
-            cls._client = pinecone.Index(index_name)
-            logger.info("Pinecone client initialized")
+            logger.info("ChromaDB client initialized")
 
         except ImportError:
-            raise RuntimeError("pinecone package not installed. Install with: pip install pinecone-client")
+            raise RuntimeError("chromadb package not installed. Install with: pip install chromadb")
         except Exception as e:
-            logger.error(f"Pinecone initialization failed: {e}")
-            raise
-
-    @classmethod
-    def _init_qdrant(cls, api_key: str):
-        """Initialize Qdrant client"""
-        try:
-            from qdrant_client import QdrantClient
-
-            cls._client = QdrantClient(
-                url="http://localhost:6333",  # Qdrant server URL
-                api_key=api_key
-            )
-
-            # Create collection if not exists
-            try:
-                cls._client.get_collection("knowledge_vault")
-            except Exception:
-                from qdrant_client.models import Distance, VectorParams
-
-                cls._client.create_collection(
-                    collection_name="knowledge_vault",
-                    vectors_config=VectorParams(
-                        size=1536,  # text-embedding-3-small
-                        distance=Distance.COSINE
-                    )
-                )
-
-            logger.info("Qdrant client initialized")
-
-        except ImportError:
-            raise RuntimeError("qdrant-client package not installed. Install with: pip install qdrant-client")
-        except Exception as e:
-            logger.error(f"Qdrant initialization failed: {e}")
+            logger.error(f"ChromaDB initialization failed: {e}")
             raise
 
     @classmethod
     def health_check(cls) -> bool:
-        """Check if vector DB is healthy"""
         try:
-            if cls._provider == "pinecone":
-                return cls._client is not None
-            elif cls._provider == "qdrant":
-                cls._client.get_collections()
-                return True
-            return False
+            return cls._collection is not None
         except Exception as e:
             logger.error(f"Vector DB health check failed: {e}")
             return False
@@ -123,42 +56,17 @@ class VectorDBClient:
         vector: List[float],
         metadata: Dict[str, Any]
     ) -> str:
-        """
-        Upsert vector with metadata to vector database.
-
-        Args:
-            link_id: Link ID (unique identifier)
-            user_id: User ID (for filtering)
-            vector: 1536-dimensional embedding vector
-            metadata: Metadata dict {title, platform, tags, category, etc}
-
-        Returns:
-            Vector ID in the database
-        """
         try:
             vector_id = f"link_{link_id}"
-
-            # Add user_id to metadata for filtering
             metadata["link_id"] = link_id
             metadata["user_id"] = user_id
 
-            if cls._provider == "pinecone":
-                cls._client.upsert(
-                    vectors=[(vector_id, vector, metadata)],
-                    namespace=user_id  # Namespace per user for isolation
-                )
-            elif cls._provider == "qdrant":
-                from qdrant_client.models import PointStruct
-
-                point = PointStruct(
-                    id=hash(vector_id) % (2**31),  # Convert to positive int
-                    vector=vector,
-                    payload=metadata
-                )
-                cls._client.upsert(
-                    collection_name="knowledge_vault",
-                    points=[point]
-                )
+            # ChromaDB upsert
+            cls._collection.upsert(
+                ids=[vector_id],
+                embeddings=[vector],
+                metadatas=[metadata]
+            )
 
             logger.info(f"Upserted vector {vector_id}")
             return vector_id
@@ -175,60 +83,29 @@ class VectorDBClient:
         top_k: int = 5,
         threshold: float = 0.5
     ) -> List[Dict]:
-        """
-        Search vector database with semantic similarity.
-
-        Args:
-            query_vector: Query embedding vector (1536 dims)
-            user_id: User ID (for filtering results)
-            top_k: Number of results to return
-            threshold: Minimum similarity score (0.0-1.0)
-
-        Returns:
-            List of {id, score, metadata} results
-        """
         try:
             results = []
 
-            if cls._provider == "pinecone":
-                response = cls._client.query(
-                    vector=query_vector,
-                    top_k=top_k,
-                    namespace=user_id,
-                    include_metadata=True,
-                    filter={"user_id": {"$eq": user_id}}
-                )
+            response = cls._collection.query(
+                query_embeddings=[query_vector],
+                n_results=top_k,
+                where={"user_id": user_id}
+            )
 
-                for match in response.matches:
-                    if match.score >= threshold:
-                        results.append({
-                            "id": match.id,
-                            "score": match.score,
-                            "metadata": match.metadata or {}
-                        })
+            if not response["ids"] or not response["ids"][0]:
+                return []
 
-            elif cls._provider == "qdrant":
-                response = cls._client.search(
-                    collection_name="knowledge_vault",
-                    query_vector=query_vector,
-                    query_filter={
-                        "must": [
-                            {
-                                "key": "user_id",
-                                "match": {"value": user_id}
-                            }
-                        ]
-                    },
-                    limit=top_k,
-                    score_threshold=threshold
-                )
-
-                for point in response:
-                    results.append({
-                        "id": str(point.id),
-                        "score": point.score,
-                        "metadata": point.payload or {}
-                    })
+            for idx, id_val in enumerate(response["ids"][0]):
+                # ChromaDB distance is returned. For cosine, smaller is better (often 1-cosine)
+                # But let's just return what we have
+                distance = response["distances"][0][idx] if "distances" in response and response["distances"] else 0.0
+                metadata = response["metadatas"][0][idx] if "metadatas" in response and response["metadatas"] else {}
+                
+                results.append({
+                    "id": id_val,
+                    "score": 1.0 - distance, # Rough estimate to match 0-1 similarity 
+                    "metadata": metadata
+                })
 
             logger.info(f"Search found {len(results)} results for user {user_id}")
             return results
@@ -239,29 +116,12 @@ class VectorDBClient:
 
     @classmethod
     def delete(cls, link_id: str, user_id: str) -> bool:
-        """Delete vector for a link"""
         try:
             vector_id = f"link_{link_id}"
-
-            if cls._provider == "pinecone":
-                cls._client.delete(
-                    ids=[vector_id],
-                    namespace=user_id
-                )
-            elif cls._provider == "qdrant":
-                # Qdrant delete by payload filter
-                cls._client.delete(
-                    collection_name="knowledge_vault",
-                    points_selector={
-                        "filter": {
-                            "must": [
-                                {"key": "link_id", "match": {"value": link_id}},
-                                {"key": "user_id", "match": {"value": user_id}}
-                            ]
-                        }
-                    }
-                )
-
+            cls._collection.delete(
+                ids=[vector_id],
+                where={"user_id": user_id}
+            )
             logger.info(f"Deleted vector {vector_id}")
             return True
 
@@ -271,22 +131,11 @@ class VectorDBClient:
 
     @classmethod
     def get_stats(cls) -> Dict[str, Any]:
-        """Get vector database statistics"""
         try:
-            if cls._provider == "pinecone":
-                index_stats = cls._client.describe_index_stats()
-                return {
-                    "total_vectors": index_stats.total_vector_count,
-                    "dimension": index_stats.dimension,
-                    "index_fullness": index_stats.index_fullness
-                }
-            elif cls._provider == "qdrant":
-                collection_info = cls._client.get_collection("knowledge_vault")
-                return {
-                    "total_vectors": collection_info.points_count,
-                    "dimension": 1536
-                }
-            return {}
+            return {
+                "total_vectors": cls._collection.count(),
+                "provider": "chroma"
+            }
         except Exception as e:
             logger.error(f"Stats retrieval failed: {e}")
             return {"error": str(e)}
