@@ -1,0 +1,4 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { background: #F2EDE4; font-family: 'Outfit', sans-serif; }
+#root { display: flex; flex-direction: column; }
