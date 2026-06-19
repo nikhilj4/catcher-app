@@ -37,9 +37,16 @@ load_dotenv()
 # LOGGING CONFIGURATION
 # ============================================================================
 
+import os
+os.makedirs("log", exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("log/app.log"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -124,6 +131,7 @@ class SaveLinkRequest(BaseModel):
         description="User's custom notes (5 words or more)"
     )
     collection_id: Optional[str] = Field(None, description="Collection ID to add to")
+    category_hierarchy: Optional[str] = Field(None, description="User selected category")
 
 
 class SaveLinkResponse(BaseModel):
@@ -213,7 +221,7 @@ def get_current_user_id(db: Session = Depends(get_db)) -> str:
     In production: validate JWT token and extract user ID
     """
     # TODO: Implement JWT validation
-    return "test-user-123"
+    return "00000000-0000-0000-0000-000000000000"
 
 
 # ============================================================================
@@ -355,6 +363,7 @@ async def save_link(
             published_date=quick_data.get("published"),
             thumbnail_url=quick_data.get("thumbnail"),
             custom_notes=request.custom_notes,
+            category_hierarchy=request.category_hierarchy,
             ai_processed=False  # Mark for background enrichment
         )
 
@@ -498,7 +507,7 @@ async def get_link_detail(
 
 @app.get("/api/search", response_model=SearchResponse)
 async def search_knowledge_base(
-    query: str = Query(..., min_length=3, max_length=500),
+    query: str = Query(..., min_length=1, max_length=500),
     top_k: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id)

@@ -266,11 +266,13 @@ async def run_background_queue():
     logger.info("Starting background queue processor...")
 
     while True:
-        job_id, job = background_enrichment_queue.dequeue()
+        item = background_enrichment_queue.dequeue()
 
-        if not job:
+        if not item:
             await asyncio.sleep(1)
             continue
+            
+        job_id, job = item
 
         try:
             logger.info(f"Processing job {job_id}")

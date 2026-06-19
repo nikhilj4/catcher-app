@@ -13,13 +13,13 @@ from sqlalchemy import (
     ForeignKey, TIMESTAMP, ARRAY, Index, func, UniqueConstraint,
     CheckConstraint, JSON, TypeDecorator
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, INET
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 # PostgreSQL UUID type
 class GUID(TypeDecorator):
-    impl = UUID
+    impl = String(36)
     cache_ok = True
 
     def process_bind_param(self, value, dialect):
@@ -121,8 +121,8 @@ class Link(Base):
 
     # Content extraction
     full_text_snippet = Column(Text)
-    headings_json = Column(JSONB)
-    paragraphs_json = Column(JSONB)
+    headings_json = Column(JSON)
+    paragraphs_json = Column(JSON)
 
     # E-commerce metadata
     price = Column(DECIMAL(12, 2))
@@ -132,11 +132,11 @@ class Link(Base):
 
     # User metadata
     custom_notes = Column(Text)
-    user_tags = Column(ARRAY(String), default=[])
-
-    # AI enrichment
-    ai_summary = Column(String(1024))
-    ai_tags = Column(ARRAY(String), default=[])
+    user_tags = Column(JSON, default=[])
+    
+    # AI Enrichment
+    ai_summary = Column(Text)
+    ai_tags = Column(JSON, default=[])
     ai_processed = Column(Boolean, default=False, nullable=False, index=True)
 
     # Vector reference
@@ -224,7 +224,7 @@ class SearchQuery(Base):
     query_embedding_id = Column(String(255))
 
     results_count = Column(Integer, default=0)
-    top_result_link_ids = Column(ARRAY(GUID()), default=[])
+    top_result_link_ids = Column(JSON, default=[])
 
     ai_response = Column(Text)
     ai_model = Column(String(100), default="gpt-4o-mini")
@@ -349,10 +349,10 @@ class AuditLog(Base):
     resource_type = Column(String(50))
     resource_id = Column(GUID())
 
-    ip_address = Column(INET)
+    ip_address = Column(String(45))
     user_agent = Column(Text)
 
-    details = Column(JSONB)
+    details = Column(JSON)
 
     created_at = Column(TIMESTAMP(timezone=True), default=func.now(), nullable=False, index=True)
 
@@ -379,7 +379,7 @@ class APIToken(Base):
     token_hash = Column(String(64), unique=True, nullable=False)
     name = Column(String(255))
 
-    scopes = Column(ARRAY(String), default=["links:read", "links:write"])
+    scopes = Column(JSON, default=["links:read", "links:write"])
 
     rate_limit_per_minute = Column(Integer, default=60)
 
@@ -410,7 +410,7 @@ class SystemConfig(Base):
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     config_key = Column(String(255), unique=True, nullable=False, index=True)
-    config_value = Column(JSONB, nullable=False)
+    config_value = Column(JSON, nullable=False)
     description = Column(Text)
     updated_at = Column(TIMESTAMP(timezone=True), default=func.now(), onupdate=func.now())
     updated_by = Column(String(255))

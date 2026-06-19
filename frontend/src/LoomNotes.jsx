@@ -120,7 +120,7 @@ export default function LoomNotes() {
   // ---- SAVE LINK (replace saveNote) ----
   async function saveLink({ url, notes: customNotes, cat }) {
     try {
-      const res = await api.saveLink(url, customNotes);
+      const res = await api.saveLink(url, customNotes, cat);
       if (res.status === "already_exists") {
         setToast("Link already saved");
         setCompose(false);

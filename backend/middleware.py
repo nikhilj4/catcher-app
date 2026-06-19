@@ -70,7 +70,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.requests: Dict[str, list] = {}  # user_id -> [timestamps]
         self.limits = {
-            "/api/save-link": 10,      # 10 requests per minute
+            "/api/save-link": 100,     # 100 requests per minute
             "/api/search": 20,         # 20 requests per minute
             "/api/links": 30,          # 30 requests per minute
             "default": 100             # 100 requests per minute for others

@@ -16,10 +16,10 @@ export const api = {
   // Links
   getLinks: (cat) => req(`/api/links${cat ? `?cat=${cat}` : ""}`),
   getLink: (id) => req(`/api/links/${id}`),
-  saveLink: (url, customNotes) =>
+  saveLink: (url, customNotes, cat) =>
     req("/api/save-link", {
       method: "POST",
-      body: JSON.stringify({ url, custom_notes: customNotes }),
+      body: JSON.stringify({ url, custom_notes: customNotes, category_hierarchy: cat }),
     }),
   patchLink: (id, patch) =>
     req(`/api/links/${id}`, {

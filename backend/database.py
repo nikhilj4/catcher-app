@@ -235,7 +235,8 @@ def init_db(environment: str = "production"):
     # Auto-create tables for local development
     import models
     engine = DatabaseEngine.get_engine()
-    Base.metadata.create_all(bind=engine)
+    models.Base.metadata.create_all(bind=engine)
+
     
     logger.info(f"Database initialized for {environment} environment")
 
